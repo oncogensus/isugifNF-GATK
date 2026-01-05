@@ -4,9 +4,9 @@ Para fazer a chamada de variantes de SVN, é utilizado o pipeline em [Nextflow](
 
 ## Installation
 
-You will need a working version of nextflow, [see here](https://www.nextflow.io/docs/latest/getstarted.html#requirements) on how to install nextflow. Nextflow modules are avialable on some of the HPC computing resources.
+Você precisará de uma versão funcional do Nextflow. Veja [aqui](https://www.nextflow.io/docs/latest/getstarted.html#requirements)￼como instalar o Nextflow. Módulos do Nextflow estão disponíveis em alguns ambientes de computação HPC.
 
-<details><summary>See modules on HPC clusters</summary>
+<details><summary>Modulos de clusters HPC</summary>
 
 ```
 # === Nova
