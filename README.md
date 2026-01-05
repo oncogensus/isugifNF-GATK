@@ -31,6 +31,8 @@ NEXTFLOW=/project/isu_gif_vrsc/programs/nextflow
 
 </details>
 
+Uma vez que o Nextflow esteja instalado, o comando abaixo pode ser usado para ver o menu do isugifNF/GATK
+
 ```
 nextflow run isugifNF/GATK --help
 ```
