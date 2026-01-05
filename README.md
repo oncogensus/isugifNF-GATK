@@ -2,7 +2,7 @@
 
 Para fazer a chamada de variantes de SVN, é utilizado o pipeline em [Nextflow](https://www.nextflow.io/) isugifNF/GATK. Este pip[eline automatiza o uso do Genome Analysis Toolkit (GATK), modificado para seguir a melhores práticas descritas no Bioinformatic Workbook: GATK Best Practices Workflow for DNA-Seq. Este pipeline estende a funcionalidade do GATK, que originalmente é focado em dados de DNA-Seq, para permitir a detecção de variantes também a partir de dados de RNA-Seq e de sequenciamento de leituras longas. Ele fornece uma solução abrangente para diferentes plataformas de sequenciamento, ampliando as capacidades de análise de variantes.
 
-## Installation
+## Instalação
 
 Você precisará de uma versão funcional do Nextflow. Veja [aqui](https://www.nextflow.io/docs/latest/getstarted.html#requirements)￼como instalar o Nextflow. Módulos do Nextflow estão disponíveis em alguns ambientes de computação HPC.
 
@@ -105,11 +105,13 @@ NOTE: Genome name should not contain any periods before the ".fasta"
 
 </details>
 
-### Singularity Container
+### Container Singularity
+
+As ferramentas necessárias para o workflow estão incluídas no container [aseetharam/gatk:latest](https://github.com/aseetharam/gatk)￼e devem ser baixadas automaticamente pelo Nextflow. (Você só precisará executar singularity pull se a conexão com o site estiver instável.)
 
 Tools required for the workflow are included in the container [aseetharam/gatk:latest](https://github.com/aseetharam/gatk) and should be automatically pulled by nextflow. (Will only need to run `singularity pull` if website connection is unstable.)
 
-<details><summary>If website connection is unstable, pull singularity and use the `-with-singularity` flag</summary>
+<details><summary>Se a conexão com o site estiver instável, baixe o Singularity manualmente e use a flag `-with-singularity`</summary></details>
 
 #### To pull the image
 
