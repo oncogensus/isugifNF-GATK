@@ -4,7 +4,7 @@ Para fazer a chamada de variantes de SVN, é utilizado o pipeline em [Nextflow](
 
 ## Instalação
 
-Você precisará de uma versão funcional do Nextflow. Veja [aqui](https://www.nextflow.io/docs/latest/getstarted.html#requirements)￼como instalar o Nextflow. Módulos do Nextflow estão disponíveis em alguns ambientes de computação HPC.
+Você precisará de uma versão funcional do Nextflow. Veja [aqui](https://www.nextflow.io/docs/latest/getstarted.html#requirements)￼como instalar o Nextflow. Módulos do Nextflow estão disponíveis em alguns ambientes de computação HPC. Todo processo de download das ferramentas é automatizado pelo pipeline via Nextflow e Singularity.
 
 <details><summary>Modulos de clusters HPC</summary>
 
