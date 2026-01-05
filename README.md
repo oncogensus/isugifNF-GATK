@@ -1,5 +1,5 @@
 # isugifNF-GATK 
-#(A descrição, instruções e adaptações do manual original de uso deste pipeline ainda estão em produção)
+(A descrição, instruções e adaptações do manual original de uso deste pipeline ainda estão em produção)
 
 Para fazer a chamada de variantes de SVN, é utilizado o pipeline em [Nextflow](https://www.nextflow.io/) isugifNF/GATK. Este pip[eline automatiza o uso do Genome Analysis Toolkit (GATK), modificado para seguir a melhores práticas descritas no Bioinformatic Workbook: GATK Best Practices Workflow for DNA-Seq. Este pipeline estende a funcionalidade do GATK, que originalmente é focado em dados de DNA-Seq, para permitir a detecção de variantes também a partir de dados de RNA-Seq e de sequenciamento de leituras longas. Ele fornece uma solução abrangente para diferentes plataformas de sequenciamento, ampliando as capacidades de análise de variantes.
 
