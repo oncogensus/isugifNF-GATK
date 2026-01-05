@@ -107,7 +107,7 @@ NOTE: Genome name should not contain any periods before the ".fasta"
 
 ### Container Singularity
 
-As ferramentas necessárias para o workflow estão incluídas no container [aseetharam/gatk:latest](https://github.com/aseetharam/gatk)￼e devem ser baixadas automaticamente pelo Nextflow. (Você só precisará executar singularity pull se a conexão com o site estiver instável.)
+As ferramentas necessárias para o workflow estão incluídas no container [aseetharam/gatk:latest](https://github.com/aseetharam/gatk)￼ e devem ser baixadas automaticamente pelo Nextflow. (Você só precisará executar singularity pull se a conexão com o site estiver instável.)
 
 #### Para baixar a imagem do container Singularity
 
@@ -115,7 +115,7 @@ As ferramentas necessárias para o workflow estão incluídas no container [asee
 singularity pull --name gatk.sif shub://aseetharam/gatk:latest
 ```
 
-#### No Nextflow use Link image to Nextflow using the `-with-singularity` flag.
+#### No Nextflow use a flag `-with-singularity` para usar a imagem baixada.
 
 ```
 nextflow run isugifNF/GATK \
@@ -127,21 +127,25 @@ nextflow run isugifNF/GATK \
 
 </details>
 
-## Test Dataset
+## Dataset de teste
 
-A simple DNAseq test dataset (`test-data`) is available on [ISU Box](https://iastate.app.box.com/v/gatk-test-data). This dataset contains a small genome (portion of chr1, B73v5 ), and Illumina short reads for 26 NAM lines (including B73) and B73Ab10 line (27 lines total).
-Only the reads that map to the region of the v5 genome is included, so that this can be tested quickly.
-There are examples of multiple files belonging to same NAM line as well as single file per NAM line to make sure both conditions works correctly.
-The end VCF file should have exactly 27 individuals (lines) in them.
+Um conjunto de dados simples para teste da ferramenta está disponível no [ISU Box](https://iastate.app.box.com/v/gatk-test-data)￼. Esse conjunto contém um genoma pequeno (uma porção do cromossomo 1, B73v5) e leituras curtas de Illumina para 26 linhagens NAM (incluindo B73) e para a linhagem B73Ab10 (total de 27 linhagens).
 
+Apenas as leituras que mapeiam para a região do genoma v5 estão incluídas, para que o teste possa ser executado rapidamente.
+
+Há exemplos com múltiplos arquivos pertencentes à mesma linhagem NAM, assim como exemplos com um único arquivo por linhagem NAM, para garantir que ambas as condições funcionem corretamente.
+
+O arquivo VCF final deve conter exatamente 27 indivíduos (linhagens).
+
+Para baixar o dataset de teste, use os seguintes comandos:
 ```
 wget https://iastate.box.com/shared/static/wt85l6s4nw4kycm2bo0gpgjq752osatu.gz
 tar -xf wt85l6s4nw4kycm2bo0gpgjq752osatu.gz
 
 ls -1 test-data/
-#> fastq          # <= folder of paired reads
+#> fastq          # <= Pasta com a reads (paired)
 #> read-group.txt
-#> ref            # <= folder containing one genome reference
+#> ref            # <= Para com o genoma de referência
 ```
 
 ## Running the Pipeline
