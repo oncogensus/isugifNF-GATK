@@ -109,17 +109,13 @@ NOTE: Genome name should not contain any periods before the ".fasta"
 
 As ferramentas necessárias para o workflow estão incluídas no container [aseetharam/gatk:latest](https://github.com/aseetharam/gatk)￼e devem ser baixadas automaticamente pelo Nextflow. (Você só precisará executar singularity pull se a conexão com o site estiver instável.)
 
-Tools required for the workflow are included in the container [aseetharam/gatk:latest](https://github.com/aseetharam/gatk) and should be automatically pulled by nextflow. (Will only need to run `singularity pull` if website connection is unstable.)
-
-<details><summary>Se a conexão com o site estiver instável, baixe o Singularity manualmente e use a flag `-with-singularity`</summary></details>
-
-#### To pull the image
+#### Para baixar a imagem do container Singularity
 
 ```
 singularity pull --name gatk.sif shub://aseetharam/gatk:latest
 ```
 
-#### Link image to Nextflow using the `-with-singularity` flag.
+#### No Nextflow use Link image to Nextflow using the `-with-singularity` flag.
 
 ```
 nextflow run isugifNF/GATK \
