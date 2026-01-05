@@ -1,11 +1,9 @@
 # isugifNF-GATK
 ## Repositório para descrever o principal pipeline de chamada de variantes utilizado no Oncogensus. 
 
-# GATK
+# isugifNF/GATK
 
-A [Nextflow](https://www.nextflow.io/) wrapper for the [Genome Analysis Toolkit (GATK)](https://gatk.broadinstitute.org/hc/en-us), modified from the pipeline described in the Bioinformatic Workbook: [GATK Best Practices Workflow for DNA-Seq](https://bioinformaticsworkbook.org/dataAnalysis/VariantCalling/gatk-dnaseq-best-practices-workflow.html#gsc.tab=0).
-
-This Nextflow wrapper extends GATK's functionality from DNAseq data, to enabling variant calling from RNA-Seq and long-read sequencing data. It provides a comprehensive solution for diverse sequencing platforms, enhancing variant analysis capabilities.
+Para fazer a chamada de variantes de SVN, é utilizado o pipeline em [Nextflow](https://www.nextflow.io/) isugifNF/GATK. Este pip[eline automatiza o uso do Genome Analysis Toolkit (GATK), modificado para seguir a melhores práticas descritas no Bioinformatic Workbook: GATK Best Practices Workflow for DNA-Seq. Este pipeline estende a funcionalidade do GATK, que originalmente é focado em dados de DNA-Seq, para permitir a detecção de variantes também a partir de dados de RNA-Seq e de sequenciamento de leituras longas. Ele fornece uma solução abrangente para diferentes plataformas de sequenciamento, ampliando as capacidades de análise de variantes.
 
 ## Installation
 
