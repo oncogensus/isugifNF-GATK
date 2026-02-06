@@ -252,286 +252,192 @@ results/
   |_ timeline.html               # <= runtime information for all processes
 
 ```
-### GATK variant calling for RNAseq
+### O arquivo de configuração do Nextflow nf_local.config
+Esta configuração otimiza o pipeline isugifNF/GATK para execução em ambientes onde o armazenamento compartilhado (NFS) pode ser instável ou lento durante operações intensivas do Picard e GATK. Abaixo seguem algumas observações e explicações sobre o arquivo nf_local.config.
 
-In order to process RNAseq, we use the `STAR` aligner. To use the RNAseq variant calling pipeline, make the following parameter changes. 
+1. Observabilidade e Rastreamento
+As seções iniciais habilitam a geração de relatórios detalhados após a execução:
 
-```
-nextflow run isugifNF/GATK \
-  --seq "rna" \
-  --genome "genome/genome.fa" \
-  --reads "data/*.{r1,r2}.fq.gz" \
-  --gtf "genome/genome.gtf" \
-  -profile slurm,singularity \
-  -resume
-```
+Report/Timeline: Gera arquivos HTML com o tempo de execução e uso de recursos por processo.
 
-#### RNAseq final output
+Trace: Fornece uma tabela detalhada (status, hash, memória real usada) de cada task.
 
-The final output will be in a `results` folder. SNPs will be in the VCF file, probably the file with the longest name (e.g. `first-round_merged_snps-only_snp-only.pass-only.vcf`).
+2. Gestão de Arquivos Temporários (Local TMP)
+Esta é a parte mais crítica do script. Processos baseados em Java (Picard/GATK) utilizam o SortingCollection, que despeja arquivos imensos no diretório temporário quando a memória RAM não é suficiente para ordenar os dados.
 
-```
-results/
-  |_ 01_MarkAdapters/            #<= folders contain intermediate files
-  |_ 02_MapReads/
-  |_ 03_PrepGATK/
-  |_ 04_GATK/
-  |_ 05_FilterSNPs/
-  |  |_ first-round_merged_snps-only_sorted_snp-only.pass-only.vcf     #<= final SNP file
-  |
-  |_ report.html
-  |_ timeline.html               # <= runtime information for all processes
+Estratégia: Foi definida a variável LOCAL_TMP_BASE apontando para o /tmp local do nó de computação (disco rígido físico da máquina, não a rede).
 
-```
+Objetivo: Evitar erros de "Disk quota exceeded" ou "I/O Error" comuns quando o NFS tenta lidar com milhares de pequenos arquivos temporários.
 
-### GATK variant calling for long read data
+3. Configurações de Processo (Defaults vs. Específicos)
+O arquivo divide os processos em duas categorias principais:
 
-In order to process long read data obtained from the PacBio platform, we use the `pbmm2` aligner. To use the long read variant calling pipeline, make the following parameter changes. 
+A. I/O-Bound (Limitados por Disco)
+Processos como FastqToSam, MergeBamAlignment, MarkDuplicates e SortAndFixTags.
 
-```
-nextflow run isugifNF/GATK \
-  --seq "longread" \
-  --genome "genome/genome.fa" \
-  --reads "data/long-reads.fastq" \
-  -profile slurm,singularity \
-  -resume
-```
+maxForks = 1: Força a execução de apenas uma amostra por vez para esses processos. Isso evita que múltiplas tarefas disputem a largura de banda do disco simultaneamente, o que causaria lentidão geral.
 
-### Long read final output
+beforeScript: Cria e limpa manualmente pastas no /tmp local antes de iniciar o processo, garantindo que o Singularity/Apptainer e o Java usem esse espaço rápido.
 
-The final output will be in a `results` folder. SNPs will be in the VCF file, probably the file with the longest name (e.g. `output_snp-only.pass-only.vcf`).
+Gestão de Heap Java (-Xmx): O script define o uso de memória Java de forma conservadora (geralmente menor que a memória total do container) para deixar margem para o sistema operacional e evitar o encerramento do processo pelo gerenciador de memória (OOM Killer).
+
+B. CPU-Bound (Limitados por Processamento)
+Processos como bwamem2 e HaplotypeCaller.
+
+maxForks = 2: Permite um pouco mais de paralelismo, já que o gargalo aqui é o cálculo matemático e não apenas a escrita em disco.
+
+Recursos Elevados: Alocação de até 16 CPUs e 96GB de RAM para acelerar o alinhamento e a chamada de variantes.
+
+4. Controle do Executor
+queueSize = 50: Limita o Nextflow a submeter no máximo 50 tarefas totais para a fila do cluster ao mesmo tempo, mantendo o controle sobre a carga total no servidor.
 
 ```
-results/
-  |_ 02_MapReads/
-  |_ 03_PrepGATK/
-  |_ 04_GATK/
-  |_ 05_FilterSNPs/
-  |  |_ output_snp-only.pass-only.vcf     #<= final SNP file
-  |
-  |_ report.html
-  |_ timeline.html               # <= runtime information for all processes
+report   { enabled = true; overwrite = true }
+timeline { enabled = true; overwrite = true }
+trace    { enabled = true }
 
+// =====================================================
+// TMP local (somente para processos Picard “sensíveis”)
+// - Evita NFS flakey no SortingCollection.*.tmp
+// - TMP fixo por processo (sem task.hash)
+// =====================================================
+def LOCAL_TMP_BASE = "/tmp/${System.getenv('USER') ?: 'user'}/isugif_tmp"
+
+// -----------------------------------------------------
+// Defaults (baixos) — o pipeline sobe nos processos pesados
+// -----------------------------------------------------
+process {
+  cpus   = 2
+  memory = 16.GB
+  time   = '48h'
+
+  // Ajuda a não entupir o storage com work dirs antigos
+  scratch = false
+}
+
+// -----------------------------------------------------
+// Java default conservador
+// (os processos I/O-bound vão sobrescrever)
+// -----------------------------------------------------
+params {
+  java_options = "-Xmx16g -XX:+UseParallelGC -Djava.io.tmpdir=${System.getenv('TMPDIR')}"
+}
+
+// ===============================
+// I/O-bound (serializar mais)
+// ===============================
+//
+// Aqui é onde seu erro acontece.
+// Com muitos genomas, o gargalo é disco/temporários, não CPU/RAM.
+//
+process {
+
+  // 1) PRINCIPAL CULPADO: FastqToSam
+  withName: 'DNA_VARIANT_CALLING:FastqToSam' {
+    cpus     = 2
+    memory   = 48.GB
+    time     = '48h'
+    maxForks = 1
+
+    // reduzir heap -> reduz spill / temp e volume de escrita
+    ext.java_opts = "-Xmx16g -XX:+UseParallelGC -Djava.io.tmpdir=${System.getenv('TMPDIR')}"
+  }
+
+  // 2) MergeBamAlignment: usa SortingCollection -> precisa TMP local
+  withName: 'DNA_VARIANT_CALLING:MergeBamAlignment_DNA' {
+    cpus     = 3
+    memory   = 64.GB
+    time     = '72h'
+    maxForks = 1
+
+    // FORÇA TMP LOCAL (não-NFS) dentro do task
+    beforeScript = """
+      export TMPDIR="${LOCAL_TMP_BASE}/MergeBamAlignment_DNA"
+      export SINGULARITY_TMPDIR="\$TMPDIR"
+      export APPTAINER_TMPDIR="\$TMPDIR"
+      mkdir -p "\$TMPDIR" && chmod 700 "\$TMPDIR"
+    """
+
+    // garante java.io.tmpdir = TMPDIR local
+    ext.java_opts = '-Xmx24g -XX:+UseParallelGC -Djava.io.tmpdir=$TMPDIR'
+  }
+
+  // SortAndFixTags também pode usar temp pesado (Picard-ish)
+  withName: 'DNA_VARIANT_CALLING:SortAndFixTags_DNA' {
+    cpus     = 3
+    memory   = 64.GB
+    time     = '72h'
+    maxForks = 1
+
+    beforeScript = """
+      export TMPDIR="${LOCAL_TMP_BASE}/SortAndFixTags_DNA"
+      export SINGULARITY_TMPDIR="\$TMPDIR"
+      export APPTAINER_TMPDIR="\$TMPDIR"
+      mkdir -p "\$TMPDIR" && chmod 700 "\$TMPDIR"
+    """
+
+    ext.java_opts = '-Xmx24g -XX:+UseParallelGC -Djava.io.tmpdir=$TMPDIR'
+  }
+
+  // MarkDuplicates costuma gerar MUITO temp e I/O (SortingCollection)
+  withName: 'DNA_VARIANT_CALLING:MarkDuplicates_DNA' {
+    cpus     = 4
+    memory   = 96.GB
+    time     = '96h'
+    maxForks = 1
+
+    beforeScript = """
+      export TMPDIR="${LOCAL_TMP_BASE}/MarkDuplicates_DNA"
+      export SINGULARITY_TMPDIR="\$TMPDIR"
+      export APPTAINER_TMPDIR="\$TMPDIR"
+      mkdir -p "\$TMPDIR" && chmod 700 "\$TMPDIR"
+    """
+
+    ext.java_opts = '-Xmx32g -XX:+UseParallelGC -Djava.io.tmpdir=$TMPDIR'
+  }
+
+  // Se existir e for Java/GATK, também é I/O pesado
+  withName: 'DNA_VARIANT_CALLING:SamToFastq_DNA' {
+    cpus     = 2
+    memory   = 32.GB
+    time     = '48h'
+    maxForks = 1
+  }
+
+  withName: 'DNA_VARIANT_CALLING:MarkIlluminaAdapters' {
+    cpus     = 2
+    memory   = 32.GB
+    time     = '48h'
+    maxForks = 1
+  }
+}
+
+// ===============================
+// CPU-bound (limitar para não “derreter” o disco)
+// ===============================
+process {
+
+  withName: 'DNA_VARIANT_CALLING:bwamem2_mem' {
+    cpus     = 16
+    memory   = 96.GB
+    time     = '72h'
+    maxForks = 2
+  }
+
+  withName: 'DNA_VARIANT_CALLING:gatk_HaplotypeCaller_DNA' {
+    cpus     = 12
+    memory   = 96.GB
+    time     = '96h'
+    maxForks = 2
+    ext.java_opts = "-Xmx48g -XX:+UseParallelGC -Djava.io.tmpdir=${System.getenv('TMPDIR')}"
+  }
+}
+
+// ===============================
+// Segurança extra: limite global de tasks concorrentes
+// ===============================
+executor {
+  queueSize = 50
+}
 ```
 
-## Example Runs
-
-Some example runs provided to show nextflow output.
-
-### Example runs for DNAseq data
-
-<details><summary>See example run on <b>Ceres HPC</b> - last update: 14 April 2021</summary>
-
-Runtime: 1 hour 9 minutes and 27 seconds.
-
-```
-$ module load nextflow
-$ nextflow run main.nf \
-  --genome "test-data/ref/b73_chr1_150000001-151000000.fasta" \
-  --reads "test-data/fastq/*_{R1,R2}.fastq.gz" \
-  --queueSize 25 \
-  -profile slurm,singularity \
-  -resume
-
-N E X T F L O W  ~  version 20.07.1
-Launching `main.nf` [exotic_poincare] - revision: ca139b5b5f
-executor >  slurm (155)
-[8c/e6342a] process > FastqToSam (BioSample26)       [100%] 27 of 27 ✔
-[6d/13aa51] process > MarkIlluminaAdapters (27_Bi... [100%] 27 of 27 ✔
-[dc/032273] process > SamToFastq (20_BioSample24_... [100%] 27 of 27 ✔
-[0e/a8d488] process > bwamem2_index (b73_chr1_150... [100%] 1 of 1 ✔
-[2f/b3746a] process > bwamem2_mem (20_BioSample24)   [100%] 27 of 27 ✔
-[bc/8e43cc] process > CreateSequenceDictionary (b... [100%] 1 of 1 ✔
-[fb/c2b500] process > samtools_faidx (b73_chr1_15... [100%] 1 of 1 ✔
-[64/b1241a] process > MergeBamAlignment (20_BioSa... [100%] 27 of 27 ✔
-[16/ea1c05] process > bedtools_makewindows (b73_c... [100%] 1 of 1 ✔
-[34/14a2e1] process > gatk_HaplotypeCaller (chr1:... [100%] 10 of 10 ✔
-[a2/6d9b6d] process > merge_vcf                      [100%] 1 of 1 ✔
-[dd/187a85] process > vcftools_snp_only (first-ro... [100%] 1 of 1 ✔
-[cc/367a9a] process > SortVcf (first-round_merged... [100%] 1 of 1 ✔
-[ef/102130] process > calc_DPvalue (first-round_m... [100%] 1 of 1 ✔
-[8f/281023] process > VariantFiltration (first-ro... [100%] 1 of 1 ✔
-[fc/5d8e7c] process > keep_only_pass (first-round... [100%] 1 of 1 ✔
-Completed at: 14-Apr-2021 01:51:21
-Duration    : 1h 9m 27s
-CPU hours   : 7.3
-Succeeded   : 155
-```
-
-</details>
-
-<details><summary>See example run on <b>Atlas HPC</b> - last update: 14 April 2021</summary>
-
-Runtime: 50 minutes and 50 seconds.
-
-```
-$ module load singularity
-$ NEXTFLOW=/project/isu_gif_vrsc/programs/nextflow
-$ $NEXTFLOW run main.nf \
-  --genome "test-data/ref/b73_chr1_150000001-151000000.fasta" \
-  --reads "test-data/fastq/*_{R1,R2}.fastq.gz" \
-  --queueSize 50 \
-  --account isu_gif_vrsc \
-  -profile slurm,singularity \
-  -resume
-
-N E X T F L O W  ~  version 20.07.1
-Launching `main.nf` [tiny_cori] - revision: ca139b5b5f
-executor >  slurm (155)
-[92/cfaf35] process > FastqToSam (BioSample24)       [100%] 27 of 27 ✔
-[59/37e2e8] process > MarkIlluminaAdapters (20_Bi... [100%] 27 of 27 ✔
-[b3/cc67d6] process > SamToFastq (20_BioSample24_... [100%] 27 of 27 ✔
-[46/9d4a5f] process > bwamem2_index (b73_chr1_150... [100%] 1 of 1 ✔
-[e4/ad114c] process > bwamem2_mem (20_BioSample24)   [100%] 27 of 27 ✔
-[a7/044560] process > CreateSequenceDictionary (b... [100%] 1 of 1 ✔
-[50/e81af8] process > samtools_faidx (b73_chr1_15... [100%] 1 of 1 ✔
-[67/1c03a5] process > MergeBamAlignment (20_BioSa... [100%] 27 of 27 ✔
-[f6/d94e63] process > bedtools_makewindows (b73_c... [100%] 1 of 1 ✔
-[49/3a6d6c] process > gatk_HaplotypeCaller (chr1:... [100%] 10 of 10 ✔
-[68/e88beb] process > merge_vcf                      [100%] 1 of 1 ✔
-[55/66c4cf] process > vcftools_snp_only (first-ro... [100%] 1 of 1 ✔
-[92/7bad2f] process > SortVcf (first-round_merged... [100%] 1 of 1 ✔
-[0b/e824cf] process > calc_DPvalue (first-round_m... [100%] 1 of 1 ✔
-[a9/33a4f2] process > VariantFiltration (first-ro... [100%] 1 of 1 ✔
-[ef/769ed6] process > keep_only_pass (first-round... [100%] 1 of 1 ✔
-Completed at: 14-Apr-2021 01:03:12
-Duration    : 50m 50s
-CPU hours   : 6.4
-Succeeded   : 155
-```
-
-</details>
-
-<details><summary>See example run on <b>Nova HPC</b> - last update: 14 April 2021</summary>
-
-Runtime: 1 hour 46 minutes and 17 seconds.
-
-```
-$ module load gcc/7.3.0-xegsmw4 nextflow
-$ module load singularity
-$ nextflow run main.nf \
-  --genome "test-data/ref/b73_chr1_150000001-151000000.fasta" \
-  --reads "test-data/fastq/*_{R1,R2}.fastq.gz" \
-  --queueSize 25 \
-  -profile slurm,singularity \
-  -resume
-
-N E X T F L O W  ~  version 20.07.1
-Launching `main.nf` [condescending_monod] - revision: ca139b5b5f
-executor >  slurm (155)
-[5c/b08536] process > FastqToSam (BioSample04)       [100%] 27 of 27 ✔
-[88/46d321] process > MarkIlluminaAdapters (27_Bi... [100%] 27 of 27 ✔
-[96/200ac5] process > SamToFastq (21_BioSample24_... [100%] 27 of 27 ✔
-[4c/8735b5] process > bwamem2_index (b73_chr1_150... [100%] 1 of 1 ✔
-[86/06740e] process > bwamem2_mem (21_BioSample24)   [100%] 27 of 27 ✔
-[c0/3e6521] process > CreateSequenceDictionary (b... [100%] 1 of 1 ✔
-[e2/856737] process > samtools_faidx (b73_chr1_15... [100%] 1 of 1 ✔
-[25/529408] process > MergeBamAlignment (21_BioSa... [100%] 27 of 27 ✔
-[40/ca5ca7] process > bedtools_makewindows (b73_c... [100%] 1 of 1 ✔
-[8a/0d6f00] process > gatk_HaplotypeCaller (chr1:... [100%] 10 of 10 ✔
-[96/0b957b] process > merge_vcf                      [100%] 1 of 1 ✔
-[96/1f9848] process > vcftools_snp_only (first-ro... [100%] 1 of 1 ✔
-[60/edb33d] process > SortVcf (first-round_merged... [100%] 1 of 1 ✔
-[b0/372a4e] process > calc_DPvalue (first-round_m... [100%] 1 of 1 ✔
-[f3/cfb966] process > VariantFiltration (first-ro... [100%] 1 of 1 ✔
-[86/024c8b] process > keep_only_pass (first-round... [100%] 1 of 1 ✔
-Completed at: 14-Apr-2021 02:17:48
-Duration    : 1h 46m 17s
-CPU hours   : 6.6
-Succeeded   : 155
-```
-
-</details>
-
-### Example run for RNAseq data
-
-<details><summary>see example run on <b>NOVA hpc</b> - last update: 8 august 2023</summary>
-
-runtime: 4 hours 38 minutes and 54 seconds.
-
-```
-$ module load gcc/7.3.0-xegsmw4 nextflow
-$ module load singularity
-$ nextflow run main.nf \
-  --seq "rna" \
-  --genome "genome/s_lycopersicum_chromosomes.3.00.fa" \
-  --reads "01_data/s*.{r1,r2}.fq.gz" \
-  --queuesize 25 \
-  --java_options "-xmx80g -xx:+useparallelgc -djava.io.tmpdir=/work/gif3/satheesh/2023_gatk_ms/tmp" \
-  --gtf "genome/itag3.0_gene_models.gtf" \
-  -profile slurm \
-  -resume
-
-N E X T F L O W  ~  version 22.10.4
-launching `/work/gif3/satheesh/programs/gatk_testing/gatk/main.nf` [chaotic_brahmagupta] dsl2 - revision: d07ccde0d9
-executor >  slurm (8304)
-[c4/48a5ae] process > fastqtosam (subsampled_p7r1)   [100%] 1 of 1 ✔
-[ee/c542a3] process > markilluminaadapters (1_sub... [100%] 1 of 1 ✔
-[f8/a5cd97] process > samtofastq_rna (1_subsample... [100%] 1 of 1 ✔
-[8b/c7dafa] process > star_index (s_lycopersicum_... [100%] 1 of 1 ✔
-[2c/f96408] process > star_align (1_subsampled_p7r1) [100%] 1 of 1 ✔
-[ee/72b0af] process > createsequencedictionary (s... [100%] 1 of 1 ✔
-[29/6454c2] process > samtools_faidx (s_lycopersi... [100%] 1 of 1 ✔
-[af/2ff081] process > mergebamalignment_rna (1_su... [100%] 1 of 1 ✔
-[51/589571] process > markduplicates (1_subsample... [100%] 1 of 1 ✔
-[4c/53bb96] process > splitncigarreads (1_subsamp... [100%] 1 of 1 ✔
-[ee/79c9ea] process > bedtools_makewindows (s_lyc... [100%] 1 of 1 ✔
-[f6/a83bb1] process > gatk_haplotypecaller_rna (s... [100%] 8287 of 8287, fai...
-[5c/efa2eb] process > merge_vcf                      [100%] 1 of 1 ✔
-[ec/6b40be] process > vcftools_snp_only (first_ro... [100%] 1 of 1 ✔
-[ab/604154] process > sortvcf (first_round_merged... [100%] 1 of 1 ✔
-[28/765be4] process > calc_dpvalue (first_round_m... [100%] 1 of 1 ✔
-[5b/0b530f] process > variantfiltration (first_ro... [100%] 1 of 1 ✔
-[99/878369] process > keep_only_pass (first_round... [100%] 1 of 1 ✔
-warn: failed to render execution report -- see the log file for details
-warn: failed to render execution timeline -- see the log file for details
-completed at: 08-aug-2023 21:37:02
-duration    : 4h 38m 54s
-cpu hours   : 6.3
-succeeded   : 8'303
-```
-
-
-
-</details>
-
-### Example run for long read data
-
-<details><summary>see example run on <b>NOVA hpc</b> - last update: 31 October 2023</summary>
-
-runtime: 41 minutes and 23 seconds.
-
-```
-$ module load gcc/7.3.0-xegsmw4 nextflow
-$ module load singularity
-$ nextflow run main.nf \
-  --seq "longread" \
-  --genome "genome/ecoli_2000001_3000000.fasta" \
-  --reads "01_Data/CP007799_2000001-3000000.fastq" \
-  --queueSize 25 \
-  --java_options "-Xmx80g -XX:+UseParallelGC -Djava.io.tmpdir=/work/gif3/satheesh/2023_GATK_ms/tmp" \
-  -profile slurm,singularity \
-  -resume
-
-N E X T F L O W  ~  version 22.10.4
-launching `/work/gif3/satheesh/programs/gatk_testing/gatk/main.nf` [chaotic_brahmagupta] dsl2 - revision: d07ccde0d9
-executor >  slurm (21)
-[c8/aa3601] process > LONGREAD_VARIANT_CALLING:Cr... [100%] 1 of 1 ✔
-[51/b76b1a] process > LONGREAD_VARIANT_CALLING:sa... [100%] 1 of 1 ✔
-[be/0cb73f] process > LONGREAD_VARIANT_CALLING:be... [100%] 1 of 1 ✔
-[26/4f4559] process > LONGREAD_VARIANT_CALLING:pb... [100%] 1 of 1 ✔
-[d1/78ce63] process > LONGREAD_VARIANT_CALLING:pb... [100%] 1 of 1 ✔
-[bb/1e7433] process > LONGREAD_VARIANT_CALLING:Ma... [100%] 1 of 1 ✔
-[aa/4c9f99] process > LONGREAD_VARIANT_CALLING:ga... [100%] 10 of 10 ✔
-[a6/142af0] process > LONGREAD_VARIANT_CALLING:Co... [100%] 1 of 1 ✔
-[fa/069ebb] process > LONGREAD_VARIANT_CALLING:Ge... [100%] 1 of 1 ✔
-[09/ea1b74] process > LONGREAD_VARIANT_CALLING:ca... [100%] 1 of 1 ✔
-[65/cc76dd] process > LONGREAD_VARIANT_CALLING:Va... [100%] 1 of 1 ✔
-[77/452275] process > LONGREAD_VARIANT_CALLING:ke... [100%] 1 of 1 ✔
-Completed at: 31-Oct-2023 14:39:44
-Duration    : 41m 23s
-CPU hours   : 5.7
-Succeeded   : 21
-```
-
-</details>
