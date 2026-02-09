@@ -442,7 +442,7 @@ executor {
 ```
 ## Guia de Manutenção e Limpeza de Storage - Oncogensus
 
-Este documento descreve as políticas de retenção de dados e limpeza para execuções do pipeline `isugifNF/GATK` no cluster. O objetivo é evitar o esgotamento do storage no `/storage3` sem comprometer a performance de futuras execuções.
+Este documento descreve as políticas de retenção de dados e limpeza para execuções do pipeline `isugifNF/GATK` no cluster para o Oncogensus. O objetivo é evitar o esgotamento do storage no `/storage3` sem comprometer a performance de futuras execuções.
 
 ---
 
@@ -470,12 +470,24 @@ rm -rf /storage3/jpitta/oncogensus/tmp_isugif/*
 ### 2. Gerenciamento do Work Directory (-work-dir)
 O diretório nf_work_isugif/ é o que mais consome espaço, pois armazena BAMS, FastQs e VCFs intermediários de cada etapa do GATK.
 
-Durante o projeto: Mantenha os arquivos para permitir o uso da flag -resume.
+**Durante o projeto:** Mantenha os arquivos para permitir o uso da flag -resume.
 
-Pós-conclusão: Após mover os resultados finais para uma pasta de entrega/backup, limpe o diretório de trabalho.
+**Pós-conclusão:** Após mover os resultados finais para uma pasta de entrega/backup, limpe o diretório de trabalho.
 
 Comando manual:
+```bash
+rm -rf /storage3/jpitta/oncogensus/nf_work_isugif/*
+```
+#### Comando via Nextflow (Recomendado para manter caches válidos):
+```bash
+# Remove apenas arquivos de tentativas que falharam (mantém o que deu certo)
+nextflow clean -f -k
+```
+### 3. O que NÃO apagar
+Para garantir que o pipeline possa rodar offline ou sem novas descargas na próxima vez, nunca remova:
 
-TESTE
+**singularity_cache/cache/:** Se deletado, o Nextflow tentará baixar todas as imagens do GATK e ferramentas auxiliares novamente (GBs de download).
 
+**isugifNF/:** Contém a lógica do pipeline.
 
+**nf_local.config:** Contém as otimizações de memória e threads específicas para este cluster.
