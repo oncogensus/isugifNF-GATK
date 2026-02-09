@@ -128,7 +128,7 @@ nextflow run isugifNF/GATK \
 
 </details>
 
-## Dataset de teste
+### Dataset de teste
 
 Um conjunto de dados simples para teste da ferramenta está disponível no [ISU Box](https://iastate.app.box.com/v/gatk-test-data)￼. Esse conjunto contém um genoma pequeno (uma porção do cromossomo 1, B73v5) e leituras curtas de Illumina para 26 linhagens NAM (incluindo B73) e para a linhagem B73Ab10 (total de 27 linhagens).
 
@@ -252,24 +252,24 @@ results/
   |_ timeline.html               # <= runtime information for all processes
 
 ```
-### O arquivo de configuração do Nextflow nf_local.config
+## O arquivo de configuração do Nextflow nf_local.config
 Esta configuração otimiza o pipeline isugifNF/GATK para execução em ambientes onde o armazenamento compartilhado (NFS) pode ser instável ou lento durante operações intensivas do Picard e GATK. Abaixo seguem algumas observações e explicações sobre o arquivo nf_local.config.
 
-1. Observabilidade e Rastreamento
+#### 1. Observabilidade e Rastreamento
 As seções iniciais habilitam a geração de relatórios detalhados após a execução:
 
 Report/Timeline: Gera arquivos HTML com o tempo de execução e uso de recursos por processo.
 
 Trace: Fornece uma tabela detalhada (status, hash, memória real usada) de cada task.
 
-2. Gestão de Arquivos Temporários (Local TMP)
+#### 2. Gestão de Arquivos Temporários (Local TMP)
 Esta é a parte mais crítica do script. Processos baseados em Java (Picard/GATK) utilizam o SortingCollection, que despeja arquivos imensos no diretório temporário quando a memória RAM não é suficiente para ordenar os dados.
 
 Estratégia: Foi definida a variável LOCAL_TMP_BASE apontando para o /tmp local do nó de computação (disco rígido físico da máquina, não a rede).
 
 Objetivo: Evitar erros de "Disk quota exceeded" ou "I/O Error" comuns quando o NFS tenta lidar com milhares de pequenos arquivos temporários.
 
-3. Configurações de Processo (Defaults vs. Específicos)
+#### 3. Configurações de Processo (Defaults vs. Específicos)
 O arquivo divide os processos em duas categorias principais:
 
 A. I/O-Bound (Limitados por Disco)
@@ -288,7 +288,7 @@ maxForks = 2: Permite um pouco mais de paralelismo, já que o gargalo aqui é o 
 
 Recursos Elevados: Alocação de até 16 CPUs e 96GB de RAM para acelerar o alinhamento e a chamada de variantes.
 
-4. Controle do Executor
+#### 4. Controle do Executor
 queueSize = 50: Limita o Nextflow a submeter no máximo 50 tarefas totais para a fila do cluster ao mesmo tempo, mantendo o controle sobre a carga total no servidor.
 
 ```
@@ -440,4 +440,42 @@ executor {
   queueSize = 50
 }
 ```
+## Guia de Manutenção e Limpeza de Storage - Oncogensus
+
+Este documento descreve as políticas de retenção de dados e limpeza para execuções do pipeline `isugifNF/GATK` no cluster. O objetivo é evitar o esgotamento do storage no `/storage3` sem comprometer a performance de futuras execuções.
+
+---
+
+### 📊 Visão Geral dos Diretórios
+
+| Diretório | Função | Retenção Recomendada |
+| :--- | :--- | :--- |
+| `singularity_cache/` | Cache das imagens `.sif` (containers). | **Permanente** (Não apagar) |
+| `.nextflow_home/` | Plugins, assets e histórico do Nextflow. | **Permanente** (Não apagar) |
+| `isugifNF/` | Código-fonte do pipeline clonado. | **Permanente** |
+| `nf_work_isugif/` | Arquivos intermediários de cada processo. | **Temporária** (Apagar após validação) |
+| `tmp_isugif/` | Swap de I/O, cache de extração e Java TMP. | **Lixo** (Apagar após cada Job) |
+
+---
+
+### 🧹 Protocolos de Limpeza
+
+### 1. Limpeza de Temporários (Imediata)
+O diretório definido em `$NXF_TEMP` e `$TMPDIR` acumula resíduos de escrita do Picard/GATK e extrações do Apptainer/Singularity que podem não ser limpos automaticamente se o job sofrer interrupções.
+
+**Comando:**
+```bash
+rm -rf /storage3/jpitta/oncogensus/tmp_isugif/*
+```
+### 2. Gerenciamento do Work Directory (-work-dir)
+O diretório nf_work_isugif/ é o que mais consome espaço, pois armazena BAMS, FastQs e VCFs intermediários de cada etapa do GATK.
+
+Durante o projeto: Mantenha os arquivos para permitir o uso da flag -resume.
+
+Pós-conclusão: Após mover os resultados finais para uma pasta de entrega/backup, limpe o diretório de trabalho.
+
+Comando manual:
+
+TESTE
+
 
